@@ -1,0 +1,10 @@
+Method,Name,Error,Occurrences
+POST,POST /auth/login,CatchResponseError('login failed: 0 '),7782
+GET,GET /auth/me,CatchResponseError('unexpected 500'),457
+POST,POST /auth/refresh,CatchResponseError('unexpected 500'),141
+POST,POST /auth/logout,CatchResponseError('logout 0'),51
+POST,POST /auth/logout,CatchResponseError('logout 500'),35
+POST,POST /auth/login,CatchResponseError('login failed: 500 Internal Server Error'),5860
+POST,POST /auth/refresh,CatchResponseError('unexpected 0'),153
+POST,POST /auth/refresh,CatchResponseError('refresh token invalid — re-logging in'),1
+GET,GET /auth/me,CatchResponseError('unexpected 0'),509

@@ -3,8 +3,10 @@ from fastapi import FastAPI, Request
 from sqlalchemy import text
 
 from src.api.routes import image_classification
+from src.api.routes import auth as auth_routes
 from src.db.base import Base
 from src.db.session import engine
+from src.db.redis import init_redis, close_redis
 import src.db.models  # noqa: F401 — registers all models with Base.metadata
 from utils.logger import setup_logging, get_logger
 
@@ -13,7 +15,8 @@ logger = get_logger(__name__)
 
 app = FastAPI()
 
-app.include_router(image_classification.api_router,prefix="/api/v1/image_classification",tags=["Image Classification"])
+app.include_router(image_classification.api_router, prefix="/api/v1/image_classification", tags=["Image Classification"])
+app.include_router(auth_routes.api_router, prefix="/api/v1/auth", tags=["Auth"])
 
 
 @app.middleware("http")
@@ -40,12 +43,17 @@ async def on_startup():
         # Create all tables that don't already exist
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database ready — pgvector extension enabled, all tables created")
+
+    await init_redis()
+    logger.info("Redis ready")
+
     logger.info("Application startup complete")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
     await engine.dispose()
+    await close_redis()
     logger.info("Application shutdown")
 
 

@@ -36,6 +36,7 @@ class User(Base):
         foreign_keys="Follow.following_id", back_populates="following_user"
     )
     likes: Mapped[list["Like"]] = relationship(back_populates="user")  # noqa: F821
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")  # noqa: F821
 
     __table_args__ = (Index("ix_users_email", "email"),)
 

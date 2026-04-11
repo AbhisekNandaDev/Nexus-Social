@@ -31,6 +31,18 @@ services:
   #       condition: service_healthy
   #   restart: on-failure
 
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # ── PostgreSQL + pgvector ──────────────────────────────────────────────────
   db:
     image: pgvector/pgvector:pg16
@@ -71,8 +83,14 @@ services:
       # to your host's LAN IP.
       - OLLAMA_HOST=http://host.docker.internal:11434
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/social_media_content
+      - REDIS_URL=redis://redis:6379
+      - DB_POOL_SIZE=20
+      - DB_MAX_OVERFLOW=30
+      - DB_POOL_TIMEOUT=10
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 

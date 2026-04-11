@@ -1,0 +1,3 @@
+Method,Name,Error,Occurrences
+POST,POST /auth/login,CatchResponseError('login failed: 500 Internal Server Error'),22
+POST,POST /auth/register [fallback],CatchResponseError('register failed: 500 Internal Server Error'),50

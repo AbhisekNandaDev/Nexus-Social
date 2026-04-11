@@ -7,6 +7,7 @@ PostgreSQL 16 + pgvector. All tables are created automatically on application st
 ## Table of Contents
 
 - [users](#users)
+- [refresh_tokens](#refresh_tokens)
 - [user_preferences](#user_preferences)
 - [user_interest_profiles](#user_interest_profiles)
 - [posts](#posts)
@@ -37,6 +38,27 @@ Stores both real accounts and synthetic users created during Reddit seeding or t
 | `source_username` | VARCHAR(100) | nullable | Original username on source platform |
 | `is_active` | BOOLEAN | default `True` | |
 | `created_at` | TIMESTAMPTZ | default `now()` | |
+
+---
+
+## refresh_tokens
+
+Stores active refresh tokens for the JWT auth system. The raw token is never stored — only its SHA-256 hash. Each row represents one live session. Rotated on every `/auth/refresh` call; revoked on logout.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | UUID | PK, default uuid4 | |
+| `user_id` | UUID | FK → users.id, INDEX | |
+| `token_hash` | VARCHAR(64) | UNIQUE | SHA-256 hex digest of the raw token |
+| `expires_at` | TIMESTAMPTZ | | Hard expiry — ignored if `revoked = True` |
+| `revoked` | BOOLEAN | default `False` | Set `True` on rotation or logout |
+| `device_hint` | VARCHAR(255) | nullable | User-Agent snippet, for multi-session UI |
+| `created_at` | TIMESTAMPTZ | default `now()` | |
+
+**Redis mirroring:**
+- On issue: `SET refresh:{token_hash} {user_id} EX {30d_in_seconds}`
+- On rotate/revoke: `DEL refresh:{token_hash}`
+- Access token revocation (logout): `SET blacklist:jti:{jti} 1 EX {remaining_lifetime}`
 
 ---
 
