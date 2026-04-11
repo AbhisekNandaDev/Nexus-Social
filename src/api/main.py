@@ -1,6 +1,11 @@
 import time
 from fastapi import FastAPI, Request
+from sqlalchemy import text
+
 from src.api.routes import image_classification
+from src.db.base import Base
+from src.db.session import engine
+import src.db.models  # noqa: F401 — registers all models with Base.metadata
 from utils.logger import setup_logging, get_logger
 
 setup_logging()
@@ -29,11 +34,18 @@ async def log_requests(request: Request, call_next):
 
 @app.on_event("startup")
 async def on_startup():
+    async with engine.begin() as conn:
+        # Enable pgvector extension (idempotent)
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        # Create all tables that don't already exist
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database ready — pgvector extension enabled, all tables created")
     logger.info("Application startup complete")
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    await engine.dispose()
     logger.info("Application shutdown")
 
 

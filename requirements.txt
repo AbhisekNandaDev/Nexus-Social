@@ -11,6 +11,11 @@ imagehash
 Pillow
 scikit-image
 scikit-learn
+# Database
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pgvector
 # sentence-transformers removed — caused SIGABRT (PyTorch/TF/ONNX allocator conflict)
 # embeddings now served via Ollama (nomic-embed-text)
 # Optional — heavier deps for best accuracy (comment out if deployment is constrained):
