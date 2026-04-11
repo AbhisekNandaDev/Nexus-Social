@@ -1,0 +1,39 @@
+image_classification:
+    provider: "ollama"
+    model: "qwen3.5:9b"
+    think: false          # set true to re-enable chain-of-thought reasoning
+
+transcription:
+    enabled: true
+    model: "base"       # tiny | base | small | medium | large-v3
+    device: "cpu"       # cpu | cuda
+    language: null      # null = auto-detect, or e.g. "en", "es", "hi"
+
+video_processing:
+    sampling_fps: 2
+    phash_threshold: 5
+    histogram_threshold: 0.3   # soft gate: hard-drop only below 50% of this value
+    ssim_threshold: 0.85
+    optical_flow_threshold: 2.0
+    max_llm_calls: 15
+    batch_size: 3              # frames per LLM batch call (1–3); 3 gives cross-frame context
+    use_transnet: true         # use TransNetV2 if installed, else manual drift
+    use_clip: true             # use CLIP diversity selection if installed, else pHash clustering
+    drift_check_interval: 5
+
+embedding:
+    model: "nomic-embed-text"   # ollama pull nomic-embed-text  (768-dim)
+    dim: 768                    # update if switching models: all-minilm=384, mxbai-embed-large=1024
+
+audio:
+    whisper_model: "base"
+    whisper_device: "cpu"
+    whisper_compute_type: "int8"
+    max_transcript_length: 5000
+
+image_classification_classes:
+    -0 Safe:- No sexual content. Fully clothed, non-sexual images.
+    -1 Suggestive:- Mildly sexual. Tight clothes, cleavage focus, suggestive poses, or sexual context without nudity.
+    -2 Partial Nudity:- Soft nudity. Breasts/genitals covered or obscured (e.g., by hands, objects), transparent clothing, or swimwear/underwear where body form is emphasized.
+    -3 Explicit Nudity:- Full sexual nudity. Genitals or buttocks fully visible. Explicit sexual content.
+    -4 Contextual Exempt:- Nudity in an artistic, medical, educational, or breastfeeding context that is not sexualized.

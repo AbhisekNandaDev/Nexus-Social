@@ -1,0 +1,31 @@
+# Python virtual environment — never copy into the image
+env/
+
+# Python byte-code caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Installed package metadata (re-generated at install time)
+*.egg-info/
+build/
+
+# macOS metadata
+.DS_Store
+
+# Runtime-generated directories that are volume-mounted instead
+logs/
+data/
+
+# Test artefacts
+dummy_test/
+
+# Git history
+.git/
+.gitignore
+
+# Editor / IDE settings
+.vscode/
+.idea/

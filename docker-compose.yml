@@ -1,0 +1,84 @@
+services:
+
+  # ── Ollama LLM server ──────────────────────────────────────────────────────
+  # Commented out — using Ollama installed on the host machine instead.
+  # Uncomment this (and ollama-pull below) to run Ollama inside Docker.
+  #
+  # ollama:
+  #   image: ollama/ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 6
+  #     start_period: 15s
+  #   restart: unless-stopped
+
+  # ── One-shot model pull ────────────────────────────────────────────────────
+  # ollama-pull:
+  #   image: ollama/ollama
+  #   entrypoint: ["ollama", "pull", "qwen3.5:9b"]
+  #   environment:
+  #     - OLLAMA_HOST=http://ollama:11434
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   depends_on:
+  #     ollama:
+  #       condition: service_healthy
+  #   restart: on-failure
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────────────────────
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=social_media_content
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── FastAPI application ────────────────────────────────────────────────────
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Stream logs out of the container so they are readable on the host
+      - ./logs:/app/logs
+      # DeepFace downloads face-detection model weights on first inference;
+      # this volume keeps them between restarts (avoids re-downloading ~200 MB)
+      - deepface_weights:/root/.deepface
+      # faster-whisper downloads Whisper model weights from HuggingFace on first use;
+      # this volume keeps them between restarts (base model ~150 MB)
+      - whisper_cache:/root/.cache/huggingface
+    environment:
+      # host.docker.internal resolves to the host machine from inside a Docker
+      # container on macOS and Windows (Docker Desktop).
+      # On Linux add  --add-host=host.docker.internal:host-gateway  or set this
+      # to your host's LAN IP.
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/social_media_content
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+volumes:
+  # ollama_data:   # uncomment when re-enabling the Ollama container
+  deepface_weights:
+  whisper_cache:
+  postgres_data:

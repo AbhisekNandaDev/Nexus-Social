@@ -1,0 +1,19 @@
+ollama
+PyYAML
+fastapi
+uvicorn
+pydantic
+python-multipart
+deepface
+tf-keras
+faster-whisper
+imagehash
+Pillow
+scikit-image
+scikit-learn
+# sentence-transformers removed — caused SIGABRT (PyTorch/TF/ONNX allocator conflict)
+# embeddings now served via Ollama (nomic-embed-text)
+# Optional — heavier deps for best accuracy (comment out if deployment is constrained):
+# torch
+# open-clip-torch
+# transnetv2  # install from: https://github.com/soCzech/TransNetV2
