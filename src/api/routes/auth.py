@@ -2,6 +2,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ from src.api.schema.auth import (
     RegisterResponse,
     UserResponse,
 )
-from src.core.dependencies import get_current_user, oauth2_scheme
+from src.core.dependencies import bearer_scheme, get_current_user
 from src.core.security import (
     create_access_token,
     create_refresh_token,
@@ -31,7 +32,7 @@ from src.core.security import (
 from src.db.models.auth import RefreshToken
 from src.db.models.user import User, UserInterestProfile, UserPreference
 from src.db.redis import get_redis
-from src.db.session import get_db
+from src.db.session import SessionLocal, get_db
 
 api_router = APIRouter()
 
@@ -39,32 +40,33 @@ api_router = APIRouter()
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 async def _issue_tokens(
-    user: User,
-    db: AsyncSession,
+    user_id,
     redis: Redis,
     device_hint: str | None = None,
 ) -> tuple[str, str]:
-    """Create a new access + refresh token pair, persist the refresh token in
-    both Postgres (source of truth) and Redis (fast lookup), and return
-    (access_token, raw_refresh_token)."""
-    access_token, _jti = create_access_token(str(user.id))
+    """Issue a new access + refresh token pair.
+
+    Uses its own short-lived DB session so the connection is held only for the
+    INSERT (< 5ms) and released immediately — not for the full request lifetime.
+    The caller must NOT hold a DB connection when calling this function.
+    """
+    access_token, _jti = create_access_token(str(user_id))
     raw_refresh, token_hash = create_refresh_token()
 
-    db_token = RefreshToken(
-        user_id=user.id,
-        token_hash=token_hash,
-        expires_at=refresh_token_expires_at(),
-        device_hint=device_hint,
-    )
-    db.add(db_token)
-    await db.commit()
+    async with SessionLocal() as db:
+        db.add(RefreshToken(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=refresh_token_expires_at(),
+            device_hint=device_hint,
+        ))
+        await db.commit()
 
     await redis.set(
         f"refresh:{token_hash}",
-        str(user.id),
+        str(user_id),
         ex=refresh_token_redis_ttl(),
     )
-
     return access_token, raw_refresh
 
 
@@ -74,34 +76,41 @@ async def _issue_tokens(
 async def register(
     body: RegisterRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    # Reject duplicate emails
-    existing = await db.scalar(select(User).where(User.email == body.email))
+    # ── Phase 1: uniqueness check — hold connection ~1ms then release ──────────
+    async with SessionLocal() as db:
+        existing = await db.scalar(select(User).where(User.email == body.email))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    user = User(
-        email=body.email,
-        hashed_password=await hash_password_async(body.password),
-        display_name=body.display_name,
-    )
-    db.add(user)
-    await db.flush()  # get user.id before creating related rows
+    # ── Phase 2: bcrypt hash — CPU-bound, NO connection held (~200-400ms) ──────
+    hashed = await hash_password_async(body.password)
 
-    db.add(UserPreference(user_id=user.id))
-    db.add(UserInterestProfile(user_id=user.id))
-    await db.commit()
-    await db.refresh(user)
+    # ── Phase 3: write user rows — hold connection ~3ms then release ───────────
+    async with SessionLocal() as db:
+        user = User(
+            email=body.email,
+            hashed_password=hashed,
+            display_name=body.display_name,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(UserPreference(user_id=user.id))
+        db.add(UserInterestProfile(user_id=user.id))
+        await db.commit()
+        user_id = user.id
+        user_email = user.email
+        user_display_name = user.display_name
 
+    # ── Phase 4: issue tokens — own session, hold ~2ms then release ────────────
     device_hint = request.headers.get("User-Agent", "")[:255]
-    access_token, raw_refresh = await _issue_tokens(user, db, redis, device_hint)
+    access_token, raw_refresh = await _issue_tokens(user_id, redis, device_hint)
 
     return RegisterResponse(
-        user_id=user.id,
-        email=user.email,
-        display_name=user.display_name,
+        user_id=user_id,
+        email=user_email,
+        display_name=user_display_name,
         access_token=access_token,
         refresh_token=raw_refresh,
     )
@@ -113,30 +122,43 @@ async def register(
 async def login(
     body: LoginRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    user = await db.scalar(select(User).where(User.email == body.email))
+    # ── Phase 1: read user — hold connection ~1ms then release ─────────────────
+    async with SessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == body.email))
+        # Extract plain values before closing session
+        if user and not user.is_synthetic and user.hashed_password:
+            stored_hash = user.hashed_password
+            user_id = user.id
+            is_active = user.is_active
+            valid_user = True
+        else:
+            stored_hash = None
+            user_id = None
+            is_active = False
+            valid_user = False
 
-    # Constant-time rejection: always run bcrypt even when user is missing,
-    # to prevent timing-based email enumeration.
-    stored_hash = user.hashed_password if (user and not user.is_synthetic) else dummy_hash()
+    # ── Phase 2: bcrypt verify — CPU-bound, NO connection held (~200-400ms) ────
+    # Always run bcrypt (even for unknown emails) to prevent timing-based
+    # email enumeration attacks.
+    password_ok = await verify_password_async(body.password, stored_hash or dummy_hash())
 
-    if not await verify_password_async(body.password, stored_hash) or not user or user.is_synthetic:
+    if not password_ok or not valid_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    if not user.is_active:
+    if not is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
 
+    # ── Phase 3: issue tokens — own session, hold ~2ms then release ────────────
     device_hint = request.headers.get("User-Agent", "")[:255]
-    access_token, raw_refresh = await _issue_tokens(user, db, redis, device_hint)
+    access_token, raw_refresh = await _issue_tokens(user_id, redis, device_hint)
 
     return LoginResponse(
-        user_id=user.id,
+        user_id=user_id,
         access_token=access_token,
         refresh_token=raw_refresh,
     )
@@ -152,10 +174,10 @@ async def refresh(
 ):
     token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
 
-    # 1. Fast path: Redis tells us if the token is still live.
+    # Fast path: Redis tells us if the token is still live.
     user_id_str = await redis.get(f"refresh:{token_hash}")
 
-    # 2. Postgres is the source of truth regardless — validate and revoke atomically.
+    # Postgres is the source of truth — validate and revoke atomically.
     db_token = await db.scalar(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
@@ -164,7 +186,6 @@ async def refresh(
         )
     )
     if not db_token:
-        # If Redis had the token but DB rejected it, something is wrong — could be replay.
         if user_id_str:
             await redis.delete(f"refresh:{token_hash}")
         raise HTTPException(
@@ -172,18 +193,23 @@ async def refresh(
             detail="Invalid or expired refresh token",
         )
 
-    # 3. Rotate: revoke old token.
+    # Rotate: revoke old token.
     db_token.revoked = True
+    token_user_id = db_token.user_id
+    device_hint = db_token.device_hint
     await db.flush()
     await redis.delete(f"refresh:{token_hash}")
 
-    # 4. Issue new pair.
-    user = await db.get(User, db_token.user_id)
+    # Verify user is still active.
+    user = await db.get(User, token_user_id)
     if not user or not user.is_active:
         await db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
-    access_token, raw_refresh = await _issue_tokens(user, db, redis, db_token.device_hint)
+    await db.commit()
+
+    # Issue new pair via own session.
+    access_token, raw_refresh = await _issue_tokens(token_user_id, redis, device_hint)
 
     return RefreshResponse(access_token=access_token)
 
@@ -193,20 +219,20 @@ async def refresh(
 @api_router.post("/logout", response_model=MessageResponse)
 async def logout(
     body: LogoutRequest,
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    # 1. Blacklist the current access token so it can't be used after logout.
-    #    TTL = remaining lifetime of the token (no need to store dead tokens forever).
+    # Blacklist the access token for its remaining lifetime.
+    token = credentials.credentials
     payload = decode_access_token(token)
     jti: str = payload["jti"]
     exp: int = payload["exp"]
     remaining_ttl = max(int(exp - datetime.now(timezone.utc).timestamp()), 1)
     await redis.set(f"blacklist:jti:{jti}", "1", ex=remaining_ttl)
 
-    # 2. Revoke the refresh token.
+    # Revoke the refresh token.
     token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
     db_token = await db.scalar(
         select(RefreshToken).where(

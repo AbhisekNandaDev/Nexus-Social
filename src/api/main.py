@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from src.api.routes import image_classification
 from src.api.routes import auth as auth_routes
+from src.api.routes import onboarding as onboarding_routes
 from src.db.base import Base
 from src.db.session import engine
 from src.db.redis import init_redis, close_redis
@@ -17,6 +18,7 @@ app = FastAPI()
 
 app.include_router(image_classification.api_router, prefix="/api/v1/image_classification", tags=["Image Classification"])
 app.include_router(auth_routes.api_router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(onboarding_routes.api_router, prefix="/api/v1/onboarding", tags=["Onboarding"])
 
 
 @app.middleware("http")

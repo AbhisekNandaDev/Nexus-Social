@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,15 +10,17 @@ from src.db.models.user import User
 from src.db.redis import get_redis
 from src.db.session import get_db
 
-# tokenUrl points to the login endpoint so Swagger UI's "Authorize" button works.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# HTTPBearer makes Swagger UI show a plain "paste your token" dialog instead of
+# the OAuth2 username/password form that OAuth2PasswordBearer produces.
+bearer_scheme = HTTPBearer()
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     redis: Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    token = credentials.credentials
     payload = decode_access_token(token)
     jti: str = payload["jti"]
     user_id: str = payload["sub"]
