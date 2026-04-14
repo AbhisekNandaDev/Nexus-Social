@@ -73,3 +73,10 @@ dummy_test/
 
 # Sample / test data — contains content that must not be committed
 data/
+
+# Downloaded media (seeded content — large binary files)
+media/
+
+# Seeder progress checkpoint
+scripts/seed_progress.json
+commands.txt

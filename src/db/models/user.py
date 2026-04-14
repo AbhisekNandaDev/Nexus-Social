@@ -68,7 +68,7 @@ class UserInterestProfile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), unique=True
     )
-    taste_embedding: Mapped[list | None] = mapped_column(Vector(384), nullable=True)
+    taste_embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
     cluster_affinities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     top_display_tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     total_likes: Mapped[int] = mapped_column(Integer, default=0)

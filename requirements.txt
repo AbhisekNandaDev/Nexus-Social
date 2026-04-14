@@ -18,6 +18,12 @@ alembic
 pgvector
 # Auth
 bcrypt
+# Seeding
+praw
+asyncpraw
+python-dotenv
+requests
+aiohttp
 python-jose[cryptography]
 email-validator
 redis[asyncio]
