@@ -16,6 +16,17 @@ sqlalchemy[asyncio]
 asyncpg
 alembic
 pgvector
+# Auth
+bcrypt
+# Seeding
+praw
+asyncpraw
+python-dotenv
+requests
+aiohttp
+python-jose[cryptography]
+email-validator
+redis[asyncio]
 # sentence-transformers removed — caused SIGABRT (PyTorch/TF/ONNX allocator conflict)
 # embeddings now served via Ollama (nomic-embed-text)
 # Optional — heavier deps for best accuracy (comment out if deployment is constrained):

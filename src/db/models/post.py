@@ -92,7 +92,7 @@ class PostEmbedding(Base):
     post_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("posts.id"), unique=True, nullable=False
     )
-    embedding: Mapped[list] = mapped_column(Vector(384), nullable=False)
+    embedding: Mapped[list] = mapped_column(Vector(768), nullable=False)
     cluster_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("cluster_centroids.id"), nullable=True
     )

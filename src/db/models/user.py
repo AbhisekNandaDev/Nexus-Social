@@ -36,6 +36,7 @@ class User(Base):
         foreign_keys="Follow.following_id", back_populates="following_user"
     )
     likes: Mapped[list["Like"]] = relationship(back_populates="user")  # noqa: F821
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")  # noqa: F821
 
     __table_args__ = (Index("ix_users_email", "email"),)
 
@@ -67,7 +68,7 @@ class UserInterestProfile(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), unique=True
     )
-    taste_embedding: Mapped[list | None] = mapped_column(Vector(384), nullable=True)
+    taste_embedding: Mapped[list | None] = mapped_column(Vector(768), nullable=True)
     cluster_affinities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     top_display_tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     total_likes: Mapped[int] = mapped_column(Integer, default=0)

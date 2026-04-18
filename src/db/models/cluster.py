@@ -12,7 +12,7 @@ class ClusterCentroid(Base):
     __tablename__ = "cluster_centroids"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)  # 0 to K-1
-    centroid: Mapped[list] = mapped_column(Vector(384), nullable=False)
+    centroid: Mapped[list] = mapped_column(Vector(768), nullable=False)
     post_count: Mapped[int] = mapped_column(Integer, default=0)
     representative_tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

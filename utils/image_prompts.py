@@ -43,21 +43,21 @@ self_harm_type (list, empty [] if self_harm_level is none):
 age_group (pick ONE — estimate from visible people; use unknown if no people):
   child (under 13) | teen (13-17) | adult (18+) | unknown
 
-risk (pick ONE — apply strictest rule across all detected issues):
+risk (pick ONE — derive strictly from the rules below):
   allow    - Safe for all audiences
   restrict - Teen-appropriate, not for children
   nsfw     - Adult content, legal
   block    - Harmful but not illegal (extreme violence, self-harm)
   illegal  - Child sexual abuse, content illegal in most jurisdictions
 
-  Rules:
-  - safe + adult/unknown -> allow
-  - suggestive + child -> illegal; + teen -> restrict; + adult -> allow
-  - partial_nudity + child/teen -> illegal; + adult -> nsfw
-  - explicit_nudity/sexual_activity + child/teen -> illegal; + adult -> nsfw
-  - violence graphic/extreme -> block
-  - self_harm depicted/instructional -> block
-  - Minor + ANY nudity -> illegal (overrides everything)
+  Rules (apply in order, highest priority first):
+  - Minor (child/teen) + ANY nudity → illegal (overrides everything)
+  - explicit_nudity/sexual_activity + adult → nsfw
+  - partial_nudity + adult → nsfw
+  - suggestive + child → illegal; + teen → restrict; + adult → allow
+  - violence graphic/extreme → block
+  - self_harm depicted/instructional → block
+  - safe + adult/unknown → allow
 
 confidence (float 0.0-1.0): your overall certainty in this classification
 
@@ -77,28 +77,28 @@ text_in_image: any readable text visible in the image (memes, signs, captions), 
 
 objects_detected: list of prominent objects (e.g. ["guitar", "microphone", "crowd"])
 
-people_count: 0, 1, 2, or "group" (3 or more people)
+people_count (pick ONE string): "0" | "1" | "2" | "group" (3 or more people)
 
-Return ONLY a valid JSON object. No markdown, no explanation, no extra text."""
+IMPORTANT: Output the JSON object immediately. Do not write any text before or after it. Do not explain your reasoning."""
 
-    user_prompt = """Classify this image. Return ONLY the following JSON structure with no extra text:
+    user_prompt = """Classify this image. Return ONLY this JSON with every field filled in:
 {
-  "nudity_level": "safe | suggestive | partial_nudity | explicit_nudity | sexual_activity",
+  "nudity_level": "safe",
   "nsfw_subcategories": [],
-  "violence_level": "none | mild | moderate | graphic | extreme",
+  "violence_level": "none",
   "violence_type": [],
-  "self_harm_level": "none | implied | depicted | instructional",
+  "self_harm_level": "none",
   "self_harm_type": [],
-  "age_group": "child | teen | adult | unknown",
-  "risk": "allow | restrict | nsfw | block | illegal",
+  "age_group": "unknown",
+  "risk": "allow",
   "confidence": 0.0,
-  "content_description": "2-3 sentence description",
+  "content_description": "",
   "display_tags": [],
-  "mood": "happy | sad | angry | peaceful | energetic | romantic | dark | neutral | humorous | inspirational",
-  "scene_type": "indoor | outdoor | studio | urban | nature | underwater | aerial",
+  "mood": "neutral",
+  "scene_type": "indoor",
   "text_in_image": null,
   "objects_detected": [],
-  "people_count": 0
+  "people_count": "0"
 }"""
 
     message_request = [
@@ -124,6 +124,8 @@ def get_safety_prompt(
     across any frame in the batch.
     """
     n = len(images)
+    frame_ref = "this video frame" if n == 1 else f"these {n} video frames"
+
     ts_clause = ""
     if timestamps:
         ts_str = ", ".join(f"{t:.1f}s" for t in timestamps[:n])  # type: ignore[index]
@@ -137,7 +139,7 @@ def get_safety_prompt(
             "A weapon that looks like a prop but the speaker says 'I'll kill you' — classify as violent."
         )
 
-    system_prompt = f"""You are a strict social media safety classifier analysing {n} video frame{'s' if n > 1 else ''}{ts_clause}.
+    system_prompt = f"""You are a strict social media safety classifier analysing {frame_ref}{ts_clause}.
 
 Your task: identify the MOST CONCERNING safety signal present in ANY of the frames.
 If frame 1 is safe but frame 2 shows violence — classify as violent.
@@ -168,25 +170,34 @@ self_harm_type (list all found):
 age_group (pick ONE — most restrictive across all visible people):
   child | teen | adult | unknown
 
-risk (apply strictest rule):
+risk (pick ONE — apply rules in order, highest priority first):
   allow | restrict | nsfw | block | illegal
+
+  Rules:
+  - Minor (child/teen) + ANY nudity → illegal (overrides everything)
+  - explicit_nudity/sexual_activity + adult → nsfw
+  - partial_nudity + adult → nsfw
+  - suggestive + teen → restrict; + child → illegal
+  - violence graphic/extreme → block
+  - self_harm depicted/instructional → block
+  - Otherwise → allow
 
 confidence (float 0.0-1.0): certainty across all frames
 
-Return ONLY valid JSON. No markdown, no explanation."""
+IMPORTANT: Output the JSON object immediately. Do not write any text before or after it."""
 
-    user_prompt = """Classify the safety of these video frames. Return ONLY:
-{
-  "nudity_level": "safe",
+    user_prompt = f"""Classify the safety of {frame_ref}. Return ONLY:
+{{
+  "nudity_level": "",
   "nsfw_subcategories": [],
-  "violence_level": "none",
+  "violence_level": "",
   "violence_type": [],
-  "self_harm_level": "none",
+  "self_harm_level": "",
   "self_harm_type": [],
-  "age_group": "unknown",
-  "risk": "allow",
+  "age_group": "",
+  "risk": "",
   "confidence": 0.0
-}"""
+}}"""
 
     return [
         {"role": "system", "content": system_prompt},
@@ -201,23 +212,30 @@ def get_content_prompt(images: List[bytes]) -> list:
     Shorter prompt = faster inference for this descriptive pass.
     """
     n = len(images)
-    system_prompt = f"""You are a social media content analyst describing {n} video frame{'s' if n > 1 else ''}.
+    frame_ref = "this video frame" if n == 1 else f"these {n} video frames"
+
+    system_prompt = f"""You are a social media content analyst. The content in {frame_ref} has already passed safety review.
+Your job is purely descriptive — describe what is happening visually, not whether it is safe.
 
 Provide a concise description of the overall content shown across all frames,
 as if describing a short video clip. Focus on what is happening, not safety.
 
-Return ONLY valid JSON. No markdown, no explanation."""
+For mood and scene_type: if frames disagree, choose the value that represents the majority or the final frame.
 
-    user_prompt = """Describe the content of these video frames. Return ONLY:
-{
-  "content_description": "2-3 sentence description of what is happening across the frames",
-  "display_tags": ["tag1", "tag2", "tag3"],
-  "mood": "happy | sad | angry | peaceful | energetic | romantic | dark | neutral | humorous | inspirational",
-  "scene_type": "indoor | outdoor | studio | urban | nature | underwater | aerial",
+people_count (pick ONE string): "0" | "1" | "2" | "group" (3 or more people)
+
+IMPORTANT: Output the JSON object immediately. Do not write any text before or after it."""
+
+    user_prompt = f"""Describe the content of {frame_ref}. Return ONLY:
+{{
+  "content_description": "",
+  "display_tags": [],
+  "mood": "",
+  "scene_type": "",
   "text_in_image": null,
-  "objects_detected": ["obj1", "obj2"],
-  "people_count": 0
-}"""
+  "objects_detected": [],
+  "people_count": "0"
+}}"""
 
     return [
         {"role": "system", "content": system_prompt},
@@ -225,12 +243,15 @@ Return ONLY valid JSON. No markdown, no explanation."""
     ]
 
 
-# ── age prediction (unchanged) ─────────────────────────────────────────────────
+# ── age prediction ─────────────────────────────────────────────────────────────
 
 def get_age_prediction_prompt(image_data: bytes):
     system_prompt = """You are a biological age classifier used for safety moderation.
 
-Your task is NOT to guess an exact age.
+If no person is visible in the image, return immediately:
+{"maturity": "no_person", "confidence": 1.0, "observations": ["no visible person"]}
+
+Otherwise, your task is NOT to guess an exact age.
 Your task is to evaluate physical maturity based on facial and body development.
 
 Carefully analyze:
@@ -254,14 +275,15 @@ adolescent development, partial maturity, smooth skin, weak jawline, little or n
 adult:
 fully developed facial structure, defined jaw, mature skin, adult bone proportions
 
-Return STRICT JSON ONLY:
+IMPORTANT: Output the JSON object immediately. Do not write any text before or after it."""
 
+    user_prompt = """Analyze the physical maturity of the person in this image. Return ONLY:
 {
-  "maturity": "child | teen | adult | unknown",
-  "confidence": 0.0-1.0,
-  "observations": ["list the visual features that led to the decision"]
+  "maturity": "",
+  "confidence": 0.0,
+  "observations": []
 }"""
-    user_prompt = """Analyze the physical maturity of the person in this image."""
+
     message_request = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt, "images": [image_data]},

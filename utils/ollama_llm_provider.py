@@ -8,15 +8,22 @@ logger = get_logger(__name__)
 
 
 class OllamaProvider:
-    def __init__(self, model_name: str, think: bool = False):
+    def __init__(self, model_name: str, think: bool = False, temperature: float = 0.1):
         self.model_name = model_name
         self.think = think
+        self.temperature = temperature
         self.client = ollama.Client()
-        logger.info("OllamaProvider initialised | model=%s think=%s", self.model_name, self.think)
+        logger.info("OllamaProvider initialised | model=%s think=%s temperature=%s", self.model_name, self.think, self.temperature)
 
     def get_response(self, image_data: bytes, message_request: list):
         logger.debug("Sending request to Ollama | model=%s think=%s", self.model_name, self.think)
-        response = self.client.chat(model=self.model_name, messages=message_request, think=self.think)
+        response = self.client.chat(
+            model=self.model_name,
+            messages=message_request,
+            think=self.think,
+            format="json",
+            options={"temperature": self.temperature},
+        )
         content = response['message']['content']
         logger.debug("Raw LLM response | model=%s content=%s", self.model_name, content)
 
