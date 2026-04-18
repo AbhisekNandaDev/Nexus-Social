@@ -62,6 +62,16 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ── Adminer Database Web UI ────────────────────────────────────────────────
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
   # ── FastAPI application ────────────────────────────────────────────────────
   app:
     build: .

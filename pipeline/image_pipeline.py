@@ -145,7 +145,7 @@ class ImagePipeline:
             "scene_type":          content_raw.get("scene_type", "indoor"),
             "text_in_image":       content_raw.get("text_in_image"),
             "objects_detected":    content_raw.get("objects_detected", []),
-            "people_count":        content_raw.get("people_count", 0),
+            "people_count":        content_raw.get("people_count", "0"),
             # Safety fields (override content where keys overlap)
             **safety_raw,
             # DeepFace not run for video batches
