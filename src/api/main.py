@@ -6,10 +6,13 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from src.api.routes import image_classification
 from src.api.routes import auth as auth_routes
+from src.api.routes import feed as feed_routes
 from src.api.routes import onboarding as onboarding_routes
 from src.api.routes import posts as posts_routes
 from src.db.base import Base
@@ -23,10 +26,23 @@ logger = get_logger(__name__)
 
 app = FastAPI()
 
+_MEDIA_DIR = Path(__file__).resolve().parents[2] / "media"
+_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(_MEDIA_DIR)), name="media")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(image_classification.api_router, prefix="/api/v1/image_classification", tags=["Image Classification"])
 app.include_router(auth_routes.api_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(onboarding_routes.api_router, prefix="/api/v1/onboarding", tags=["Onboarding"])
 app.include_router(posts_routes.api_router, prefix="/api/v1/posts", tags=["Posts"])
+app.include_router(feed_routes.api_router, prefix="/api/v1/feed", tags=["Feed"])
 
 
 @app.middleware("http")

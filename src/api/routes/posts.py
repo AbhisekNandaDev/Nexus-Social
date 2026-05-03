@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -153,9 +153,10 @@ async def _run_classification(post_id: uuid.UUID, database_url: str) -> None:
                         "deepface_age":              r.get("deepface_age"),
                         "deepface_age_group":        r.get("deepface_age_group"),
                     }
-                    # Generate embedding
-                    emb_text = (result_fields.get("content_description") or "") + " " + (post.caption or "")
-                    embedding = await asyncio.to_thread(EmbeddingGenerator.generate, emb_text.strip())
+                    # Generate visual embedding from image bytes
+                    with open(abs_path, "rb") as _f:
+                        _img_bytes = _f.read()
+                    embedding = await asyncio.to_thread(EmbeddingGenerator.generate, _img_bytes)
                 except Exception as exc:
                     logger.error("Image classification failed | post=%s error=%s", post_id, exc, exc_info=True)
                     post.status = "error"
@@ -259,6 +260,12 @@ def _get_database_url() -> str:
     return DATABASE_URL
 
 
+def _to_url(request: Request, path: str | None) -> str | None:
+    if not path:
+        return None
+    return str(request.base_url).rstrip("/") + "/" + path.lstrip("/")
+
+
 # ── POST / — upload ────────────────────────────────────────────────────────────
 
 @api_router.post(
@@ -268,6 +275,7 @@ def _get_database_url() -> str:
     summary="Upload image or video — classification runs in the background",
 )
 async def upload_post(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     caption: Optional[str] = Form(default=None),
@@ -315,8 +323,8 @@ async def upload_post(
         post_id=post.id,
         status=post.status,
         media_type=post.media_type,
-        media_path=post.media_path,
-        thumbnail_path=post.thumbnail_path,
+        media_url=_to_url(request, post.media_path),
+        thumbnail_url=_to_url(request, post.thumbnail_path),
         caption=post.caption,
     )
 
@@ -329,6 +337,7 @@ async def upload_post(
     summary="Get post status and classification result",
 )
 async def get_post(
+    request: Request,
     post_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -342,8 +351,8 @@ async def get_post(
         user_id=post.user_id,
         status=post.status,
         media_type=post.media_type,
-        media_path=post.media_path,
-        thumbnail_path=post.thumbnail_path,
+        media_url=_to_url(request, post.media_path),
+        thumbnail_url=_to_url(request, post.thumbnail_path),
         caption=post.caption,
         nudity_level=post.nudity_level,
         nsfw_subcategories=post.nsfw_subcategories,

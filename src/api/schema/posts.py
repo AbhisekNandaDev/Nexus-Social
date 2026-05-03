@@ -12,8 +12,8 @@ class PostUploadResponse(BaseModel):
     post_id: uuid.UUID
     status: str          # "uploaded" until classification finishes
     media_type: str      # "image" | "video"
-    media_path: str
-    thumbnail_path: Optional[str] = None
+    media_url: str
+    thumbnail_url: Optional[str] = None
     caption: Optional[str] = None
     message: str = "Post uploaded. Classification queued."
 
@@ -24,8 +24,8 @@ class PostDetailResponse(BaseModel):
     user_id: uuid.UUID
     status: str
     media_type: str
-    media_path: str
-    thumbnail_path: Optional[str] = None
+    media_url: str
+    thumbnail_url: Optional[str] = None
     caption: Optional[str] = None
 
     # Safety

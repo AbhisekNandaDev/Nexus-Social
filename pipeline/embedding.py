@@ -1,17 +1,19 @@
-"""Content embedding generation via Ollama embedding models.
+"""Content embedding via SigLIP vision encoder (google/siglip-base-patch16-224).
 
-Uses Ollama (already running for LLM) to avoid loading PyTorch into the same
-process as TensorFlow (DeepFace) and ONNX Runtime (faster-whisper) — all three
-bring their own native allocators which conflict and cause SIGABRT crashes.
+Encodes raw image bytes directly — no LLM text description needed.
+Output: 768-dim L2-normalized vector.
 
-Default model: nomic-embed-text (768-dim, pull with: ollama pull nomic-embed-text)
+First use: model downloads automatically (~1.2 GB) to HuggingFace cache.
+Device priority: MPS (Mac) → CUDA → CPU.
 """
 from __future__ import annotations
 
+import io
 import os
 from typing import List
 
-import ollama
+import numpy as np
+from PIL import Image
 
 from utils.logger import get_logger
 
@@ -23,38 +25,101 @@ _project_dir = os.path.dirname(_base_dir)
 try:
     from utils.common_functions import load_config as _load_config
     _cfg = _load_config(os.path.join(_project_dir, "config", "config.yml"))
-    _EMBEDDING_MODEL: str = _cfg.get("embedding", {}).get("model", "nomic-embed-text")
+    _MODEL_NAME: str = _cfg.get("embedding", {}).get("model", "google/siglip-base-patch16-224")
     _EMBEDDING_DIM: int = int(_cfg.get("embedding", {}).get("dim", 768))
 except Exception:
-    _EMBEDDING_MODEL = "nomic-embed-text"
+    _MODEL_NAME = "google/siglip-base-patch16-224"
     _EMBEDDING_DIM = 768
+
+# Weights for video frame aggregation by selection reason
+_REASON_WEIGHTS: dict[str, float] = {
+    "scene_change":       1.5,
+    "diversity_centroid": 1.5,
+    "first_frame":        1.0,
+    "last_frame":         1.0,
+    "drift":              1.0,
+    "safety_flag":        0.5,
+}
 
 
 class EmbeddingGenerator:
-    _client: ollama.Client = None  # type: ignore[assignment]
+    _model = None
+    _processor = None
+    _device: str = "cpu"
 
     @classmethod
-    def _get_client(cls) -> ollama.Client:
-        if cls._client is None:
-            cls._client = ollama.Client()
-        return cls._client
+    def load_model(cls):
+        if cls._model is not None:
+            return cls._model, cls._processor
+
+        import torch
+        from transformers import AutoModel, SiglipImageProcessor
+
+        if torch.backends.mps.is_available():
+            device = "mps"
+        elif torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
+
+        logger.info("Loading SigLIP | model=%s device=%s", _MODEL_NAME, device)
+        # SiglipImageProcessor only — avoids sentencepiece (text tokenizer not needed)
+        cls._processor = SiglipImageProcessor.from_pretrained(_MODEL_NAME)
+        cls._model = AutoModel.from_pretrained(_MODEL_NAME).to(device)
+        cls._model.eval()
+        cls._device = device
+        logger.info("SigLIP ready | device=%s dim=%d", device, _EMBEDDING_DIM)
+        return cls._model, cls._processor
 
     @classmethod
-    def generate(cls, text: str, model: str = _EMBEDDING_MODEL) -> List[float]:
-        """Encode text via Ollama embedding model. Returns a flat float list.
+    def generate(cls, image_bytes: bytes) -> List[float]:
+        """Encode raw image bytes via SigLIP. Returns 768-dim L2-normalized vector."""
+        import torch
 
-        First use:  ollama pull nomic-embed-text
-        Dimension:  768 (nomic-embed-text) — update config embedding.dim if you
-                    switch models (e.g. all-minilm → 384, mxbai-embed-large → 1024).
-        """
-        if not text.strip():
-            return [0.0] * _EMBEDDING_DIM
+        model, processor = cls.load_model()
         try:
-            client = cls._get_client()
-            response = client.embeddings(model=model, prompt=text)
-            embedding: List[float] = response["embedding"]
-            logger.debug("Embedding generated | model=%s dim=%d", model, len(embedding))
-            return embedding
+            image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            inputs = processor(images=image, return_tensors="pt").to(cls._device)
+            with torch.no_grad():
+                vision_out = model.vision_model(**inputs)
+                pooled = vision_out.pooler_output  # (1, 768)
+            vec = pooled.squeeze(0).float().cpu().numpy()
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            return vec.tolist()
         except Exception as exc:
-            logger.warning("Embedding failed | model=%s error=%s — returning zeros", model, exc)
+            logger.warning("SigLIP embedding failed | error=%s — returning zeros", exc)
             return [0.0] * _EMBEDDING_DIM
+
+    @classmethod
+    def generate_for_video(cls, frames: List[dict]) -> List[float]:
+        """Weighted-average embedding across multiple video frames.
+
+        frames: [{"frame_bytes": bytes, "selection_reason": str}, ...]
+        Returns 768-dim L2-normalized vector.
+        """
+        if not frames:
+            return [0.0] * _EMBEDDING_DIM
+
+        embeddings: List[List[float]] = []
+        weights: List[float] = []
+        for frame in frames:
+            frame_bytes = frame.get("frame_bytes")
+            reason = frame.get("selection_reason", "")
+            if not frame_bytes:
+                continue
+            emb = cls.generate(frame_bytes)
+            embeddings.append(emb)
+            weights.append(_REASON_WEIGHTS.get(reason, 1.0))
+
+        if not embeddings:
+            return [0.0] * _EMBEDDING_DIM
+
+        arr = np.array(embeddings, dtype=np.float32)     # (N, 768)
+        w = np.array(weights, dtype=np.float32)          # (N,)
+        weighted = (arr * w[:, np.newaxis]).sum(axis=0)  # (768,)
+        norm = np.linalg.norm(weighted)
+        if norm > 0:
+            weighted = weighted / norm
+        return weighted.tolist()

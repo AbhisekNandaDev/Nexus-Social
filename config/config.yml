@@ -22,8 +22,8 @@ video_processing:
     drift_check_interval: 5
 
 embedding:
-    model: "nomic-embed-text"   # ollama pull nomic-embed-text  (768-dim)
-    dim: 768                    # update if switching models: all-minilm=384, mxbai-embed-large=1024
+    model: "google/siglip-base-patch16-224"   # SigLIP vision encoder — encodes image pixels directly
+    dim: 768
 
 audio:
     whisper_model: "base"

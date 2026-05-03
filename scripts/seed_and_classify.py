@@ -664,9 +664,10 @@ async def pipeline_worker(
                     "deepface_age":              result_raw.get("deepface_age"),
                     "deepface_age_group":        result_raw.get("deepface_age_group"),
                 }
-                emb_text = (fields.get("content_description") or "") + " " + caption
+                with open(media_path, "rb") as _img_f:
+                    _img_bytes = _img_f.read()
                 embedding = await asyncio.to_thread(
-                    EmbeddingGenerator.generate, emb_text.strip()
+                    EmbeddingGenerator.generate, _img_bytes
                 )
 
             else:  # video

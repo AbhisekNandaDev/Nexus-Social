@@ -66,7 +66,7 @@ class VideoClassificationResult:
     transcript_safety_flags: List[dict]
     has_audio: bool
 
-    # Embedding (384-dim, for pgvector)
+    # Embedding (768-dim, for pgvector)
     embedding: List[float]
 
     # Video metadata
@@ -92,7 +92,6 @@ class VideoPipeline:
         self.frame_selector = FrameSelector(video_cfg)
         self.audio_pipeline = AudioPipeline()
         self.aggregator = FrameAggregator()
-        self.embedding_generator = EmbeddingGenerator()
 
         # Shared LLM client — one instance reused across all frame classification threads
         model = _config["image_classification"]["model"]
@@ -277,14 +276,13 @@ class VideoPipeline:
         aggregated = self.aggregator.aggregate(frame_results, transcript)
         aggregated["needs_review"] = needs_review
 
-        # Embedding: description + caption + transcript excerpt
-        emb_text = aggregated.get("content_description", "")
-        if caption:
-            emb_text += f" | {caption}"
-        if transcript.full_text:
-            emb_text += f" | {transcript.full_text[:200]}"
+        # Embedding: encode selected frames visually via SigLIP
         try:
-            embedding = self.embedding_generator.generate(emb_text)
+            frame_dicts = [
+                {"frame_bytes": c.frame_bytes, "selection_reason": c.selection_reason}
+                for c in to_classify
+            ]
+            embedding = EmbeddingGenerator.generate_for_video(frame_dicts)
         except Exception as exc:
             logger.warning("Embedding generation failed | error=%s", exc)
             embedding = []

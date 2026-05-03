@@ -1,4 +1,6 @@
 ollama
+transformers
+torch
 PyYAML
 fastapi
 uvicorn
@@ -27,9 +29,6 @@ aiohttp
 python-jose[cryptography]
 email-validator
 redis[asyncio]
-# sentence-transformers removed — caused SIGABRT (PyTorch/TF/ONNX allocator conflict)
-# embeddings now served via Ollama (nomic-embed-text)
 # Optional — heavier deps for best accuracy (comment out if deployment is constrained):
-# torch
 # open-clip-torch
 # transnetv2  # install from: https://github.com/soCzech/TransNetV2
